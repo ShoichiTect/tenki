@@ -482,7 +482,7 @@ func renderDaily(w io.Writer, st styler, cfg config, fc *apiResponse, now time.T
 		if !ok {
 			continue
 		}
-		dateCell := t.Format("01/02") + " (" + weekday(t) + ")"
+		dateCell := padRight(t.Format("01/02")+" ("+weekday(t)+")", 12)
 		if sameDay(t, now) {
 			dateCell = st.bold(dateCell)
 		}
@@ -492,7 +492,7 @@ func renderDaily(w io.Writer, st styler, cfg config, fc *apiResponse, now time.T
 		}
 		temps := padLeft(st.tempStr(d.TempMax[i])+"/"+st.tempStr(d.TempMin[i]), 15)
 		fmt.Fprintf(w, " %s  %s  %s  %s  %s  %s\n",
-			padRight(dateCell, 12),
+			dateCell,
 			padRight(wmoLabel(d.WeatherCode[i]), labelW),
 			temps,
 			st.probCell(d.PrecipitationProb[i], 10, 17),
