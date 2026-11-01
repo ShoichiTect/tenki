@@ -33,11 +33,32 @@ func fixtureHourly(tz *time.Location) *apiResponse {
 	}
 }
 
-// デフォルトモードは 06:00〜21:00 に絞られること。
+// fixtureRolling は「今」をまたぐ 30 時間分のデータを作る（27日12:00 から）。
+func fixtureRolling(tz *time.Location) (*apiResponse, time.Time) {
+	now := time.Date(2026, 10, 27, 14, 30, 0, 0, tz)
+	base := time.Date(2026, 10, 27, 12, 0, 0, 0, tz)
+
+	h := &apiHourly{}
+	for i := 0; i < 30; i++ {
+		t := base.Add(time.Duration(i) * time.Hour)
+		temp := 15 + float64(i)/10 // 15.0 から 17.9 まで 0.1 ずつ
+		h.Time = append(h.Time, t.Format("2006-01-02T15:04"))
+		h.Temperature = append(h.Temperature, temp)
+		h.ApparentTemperature = append(h.ApparentTemperature, temp)
+		h.PrecipitationProb = append(h.PrecipitationProb, float64(i))
+		h.Precipitation = append(h.Precipitation, 0)
+		h.WeatherCode = append(h.WeatherCode, 1)
+	}
+	return &apiResponse{
+		Latitude: 35.7131, Longitude: 139.7001, Elevation: 30,
+		Timezone: "Asia/Tokyo", UTCOffsetSeconds: 32400, Hourly: h,
+	}, now
+}
+
+// デフォルトモードは「今の時刻（時間切り捨て）から24時間」に絞られること。
 func TestRenderHourlyDefaultWindow(t *testing.T) {
 	tz := jst(t)
-	fc := fixtureHourly(tz)
-	now := time.Date(2026, 10, 27, 14, 30, 0, 0, tz)
+	fc, now := fixtureRolling(tz)
 
 	var b strings.Builder
 	err := renderHourly(&b, styler{on: false, unit: "°C"}, config{mode: modeDefault, days: 1}, fc, now, tz)
@@ -46,26 +67,46 @@ func TestRenderHourlyDefaultWindow(t *testing.T) {
 	}
 	out := b.String()
 
-	for _, want := range []string{"06:00", "07:00", "14:00", "21:00", "晴れ", "快晴", "曇り"} {
+	// 14:30 の時間切り捨て = 14:00 から 24 時間（翌日 14:00 は含まない）
+	for _, want := range []string{"14:00", "21:00", "23:00", "10/28 (水)", "これから24時間", "← 現在"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("出力に %q が無い:\n%s", want, out)
 		}
 	}
-	// 窓の外は出さない
-	for _, unwanted := range []string{"05:00", "22:00"} {
+	// 窓の外は出さない（境界の 0.1 刻みの気温で確かめる）
+	for _, unwanted := range []string{"15.0°C", "15.1°C", "17.6°C", "17.7°C"} {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("出力に %q が出ている:\n%s", unwanted, out)
 		}
 	}
-	// 現在の時刻に印が付く
-	if !strings.Contains(out, "← 現在") {
-		t.Errorf("現在の印が無い:\n%s", out)
-	}
-	// サマリが入る（最大 20.1 / 最小 16.0 / 最大降水確率 53%）
-	// 22:00 の 90% は窓の外なので、サマリにも反映されない
-	for _, want := range []string{"20.1°C", "16.0°C", "53%"} {
+	// サマリは窓の中だけ（15.2〜17.5 / 最大降水確率 25%）
+	for _, want := range []string{"17.5°C", "15.2°C", "25%"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("サマリに %q が無い:\n%s", want, out)
+		}
+	}
+}
+
+// -hours N でデフォルトの窓を縮められること。
+func TestRenderHourlyDefaultWindowHours(t *testing.T) {
+	tz := jst(t)
+	fc, now := fixtureRolling(tz)
+
+	var b strings.Builder
+	if err := renderHourly(&b, styler{on: false, unit: "°C"},
+		config{mode: modeDefault, days: 1, hours: 1, window: 1}, fc, now, tz); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+
+	for _, want := range []string{"14:00", "これから1時間"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("出力に %q が無い:\n%s", want, out)
+		}
+	}
+	for _, unwanted := range []string{"15.3°C", "10/28"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("出力に %q が出ている:\n%s", unwanted, out)
 		}
 	}
 }
@@ -196,8 +237,9 @@ func TestRenderJSONShape(t *testing.T) {
 	fc := fixtureHourly(tz)
 
 	var b strings.Builder
-	if err := renderJSON(&b, config{mode: modeDefault, days: 1, unit: "c"},
-		location{Name: "高田馬場", Admin: "東京都", Lat: 35.7131, Lon: 139.7001}, fc); err != nil {
+	if err := renderJSONAt(&b, config{mode: modeDefault, days: 1, unit: "c"},
+		location{Name: "高田馬場", Admin: "東京都", Lat: 35.7131, Lon: 139.7001}, fc,
+		time.Date(2026, 10, 27, 14, 30, 0, 0, tz)); err != nil {
 		t.Fatal(err)
 	}
 	out := b.String()
@@ -210,10 +252,11 @@ func TestRenderJSONShape(t *testing.T) {
 			t.Errorf("JSON に %q が無い:\n%s", want, out)
 		}
 	}
-	// 05:00 / 22:00 は窓の外なので JSON にも入らない
-	for _, unwanted := range []string{"2026-10-27T05:00", "2026-10-27T22:00"} {
-		if strings.Contains(out, unwanted) {
-			t.Errorf("JSON に %q が入っている:\n%s", unwanted, out)
-		}
+	// 14:30 時点の窓（14:00〜翌日14:00）より前の時刻は JSON にも入らない
+	if strings.Contains(out, `"2026-10-27T07:00"`) {
+		t.Errorf("JSON に窓の外の時刻が入っている:\n%s", out)
+	}
+	if !strings.Contains(out, `"2026-10-27T21:00"`) {
+		t.Errorf("JSON に窓の中の時刻が無い:\n%s", out)
 	}
 }

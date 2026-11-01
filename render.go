@@ -244,6 +244,20 @@ type hourRow struct {
 	past     bool
 }
 
+// displayWindow はデフォルトモードの表示幅。-hours 未指定でも動くように既定値を入れる。
+func displayWindow(cfg config) time.Duration {
+	h := cfg.window
+	if h <= 0 {
+		h = defaultWindow
+	}
+	return time.Duration(h) * time.Hour
+}
+
+// inHourWindow は時刻 t が start から d 時間の窓に入るか（start は含む / 終端は含まない）。
+func inHourWindow(t, start time.Time, d time.Duration) bool {
+	return !t.Before(start) && t.Before(start.Add(d))
+}
+
 func renderHourly(w io.Writer, st styler, cfg config, fc *apiResponse, now time.Time, tz *time.Location) error {
 	h := fc.Hourly
 	if h == nil || len(h.Time) == 0 {
@@ -253,17 +267,18 @@ func renderHourly(w io.Writer, st styler, cfg config, fc *apiResponse, now time.
 	n := min(len(h.Time), len(h.Temperature), len(h.WeatherCode),
 		len(h.PrecipitationProb), len(h.Precipitation))
 
+	// デフォルトは「今の時刻から24時間」のローリング窓。
+	start := now.Truncate(time.Hour)
+	win := displayWindow(cfg)
+
 	var rows []hourRow
 	for i := 0; i < n; i++ {
 		t, ok := parseLocal(h.Time[i], tz)
 		if !ok {
 			continue
 		}
-		// デフォルトは「今日の朝から晩」= 06:00〜21:00。
-		if cfg.mode == modeDefault {
-			if hr := t.Hour(); hr < 6 || hr > 21 {
-				continue
-			}
+		if cfg.mode == modeDefault && !inHourWindow(t, start, win) {
+			continue
 		}
 		apparent := h.Temperature[i]
 		if i < len(h.ApparentTemperature) {
@@ -280,7 +295,7 @@ func renderHourly(w io.Writer, st styler, cfg config, fc *apiResponse, now time.
 		return fmt.Errorf("表示できる時刻がありません")
 	}
 
-	span := "今日 06:00-21:00"
+	span := fmt.Sprintf("これから%d時間 1時間ごと", int(displayWindow(cfg).Hours()))
 	if cfg.mode == modeHour {
 		if cfg.days == 1 {
 			span = "今日 24時間 1時間ごと"
@@ -306,10 +321,13 @@ func renderHourly(w io.Writer, st styler, cfg config, fc *apiResponse, now time.
 
 	var prevDay time.Time
 	for _, r := range rows {
-		if cfg.mode == modeHour && (prevDay.IsZero() || !sameDay(prevDay, r.t)) {
-			prevDay = r.t
-			fmt.Fprintf(w, " %s\n", st.dim(r.t.Format("01/02 ("+weekday(r.t)+")")))
+		if prevDay.IsZero() || !sameDay(prevDay, r.t) {
+			// -hour は日ごとに見出しを出す。デフォルトは日をまたいだときだけ。
+			if cfg.mode == modeHour || (cfg.mode == modeDefault && !prevDay.IsZero()) {
+				fmt.Fprintf(w, " %s\n", st.dim(r.t.Format("01/02 ("+weekday(r.t)+")")))
+			}
 		}
+		prevDay = r.t
 
 		label := wmoLabel(r.code)
 		line := fmt.Sprintf(" %s  %s  %s  %s  %s  %s",
@@ -567,8 +585,11 @@ type jsonOutput struct {
 }
 
 func renderJSON(w io.Writer, cfg config, loc location, fc *apiResponse) error {
+	return renderJSONAt(w, cfg, loc, fc, time.Now().In(fc.tz()))
+}
+
+func renderJSONAt(w io.Writer, cfg config, loc location, fc *apiResponse, now time.Time) error {
 	tz := fc.tz()
-	now := time.Now().In(tz)
 
 	out := jsonOutput{
 		Location: jsonLocation{
@@ -591,15 +612,15 @@ func renderJSON(w io.Writer, cfg config, loc location, fc *apiResponse) error {
 	if h := fc.Hourly; h != nil {
 		n := min(len(h.Time), len(h.Temperature), len(h.WeatherCode),
 			len(h.PrecipitationProb), len(h.Precipitation), len(h.ApparentTemperature))
+		start := now.Truncate(time.Hour)
+		win := displayWindow(cfg)
 		for i := 0; i < n; i++ {
 			t, ok := parseLocal(h.Time[i], tz)
 			if !ok {
 				continue
 			}
-			if cfg.mode == modeDefault {
-				if hr := t.Hour(); hr < 6 || hr > 21 {
-					continue
-				}
+			if cfg.mode == modeDefault && !inHourWindow(t, start, win) {
+				continue
 			}
 			out.Hourly = append(out.Hourly, jsonHourly{
 				Time: h.Time[i], Temperature: round1(h.Temperature[i]),

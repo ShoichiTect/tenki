@@ -1,6 +1,6 @@
 // Command tenki は Open-Meteo（APIキー不要）から天気を取得する CLI。
 //
-// 引数なしで「今日の 6:00〜21:00 を1時間ごと」を出す。
+// 引数なしで「今の時刻から24時間を1時間ごと」を出す。
 package main
 
 import (
@@ -17,11 +17,14 @@ import (
 
 const version = "0.1.0"
 
+// defaultWindow は引数なし（デフォルトモード）で出す時間数。
+const defaultWindow = 24
+
 // モードは「同時に1つだけ」選べる出力の種類。
 type mode string
 
 const (
-	modeDefault mode = "default" // 今日の 6:00-21:00 を1時間ごと
+	modeDefault mode = "default" // 今から24時間を1時間ごと
 	modeNow     mode = "now"     // 現在の実況
 	modeHour    mode = "hour"    // 1時間ごと（全時間）
 	modeMinute  mode = "minute"  // 15分ごと
@@ -39,6 +42,8 @@ type config struct {
 
 	days  int // -hour / -day の日数
 	hours int // -minute の表示幅（時間）
+
+	window int // デフォルトモードの表示幅（時間）
 
 	json  bool
 	unit  string // "c" or "f"
@@ -81,7 +86,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 }
 
 func parseArgs(args []string, stderr io.Writer) (config, error) {
-	cfg := config{days: 1, hours: 3, unit: "c"}
+	cfg := config{days: 1, hours: 3, window: defaultWindow, unit: "c"}
 
 	fs := flag.NewFlagSet("tenki", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -146,15 +151,21 @@ func parseArgs(args []string, stderr io.Writer) (config, error) {
 		cfg.days = 7
 	}
 
-	latSet, lonSet := false, false
+	latSet, lonSet, hoursSet := false, false, false
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "lat":
 			latSet = true
 		case "lon":
 			lonSet = true
+		case "hours":
+			hoursSet = true
 		}
 	})
+	// -hours は -minute とデフォルトモードの両方の表示幅を決める。
+	if hoursSet {
+		cfg.window = cfg.hours
+	}
 	if latSet != lonSet {
 		return cfg, errors.New("-lat と -lon は両方指定してください")
 	}
@@ -278,7 +289,7 @@ const usageText = `tenki — コマンドライン天気 (Open-Meteo / APIキー
   TENKI_PLACE 環境変数でも既定地点を指定できる。
 
 モード (同時に1つだけ / 省略時はデフォルト):
-  (なし)   今日の 06:00〜21:00 を1時間ごと
+  (なし)   今の時刻から24時間を1時間ごと (-hours N で変更)
   -now     現在の実況だけ
   -hour    1時間ごと (既定24時間 / -days N で延長)
   -minute  15分ごと (既定3時間先まで / -hours N で変更)
@@ -289,7 +300,7 @@ const usageText = `tenki — コマンドライン天気 (Open-Meteo / APIキー
   -place NAME   地点名
   -lat F -lon F 座標を直接指定
   -days N       -hour / -day の日数 (1-16)
-  -hours N      -minute で何時間先まで (1-24)
+  -hours N      デフォルト / -minute で何時間先まで (1-24)
   -json         JSON で出力
   -unit c|f     気温の単位
   -color MODE   auto / always / never (NO_COLOR も尊重)

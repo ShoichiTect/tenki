@@ -110,12 +110,19 @@ func buildURL(cfg config, loc location) string {
 			"precipitation_probability_max", "precipitation_sum", "sunrise", "sunset",
 		}, ","))
 		q.Set("forecast_days", strconv.Itoa(cfg.days))
-	default: // modeDefault, modeHour
+	case modeHour:
 		q.Set("hourly", strings.Join([]string{
 			"temperature_2m", "apparent_temperature", "precipitation_probability",
 			"precipitation", "weather_code",
 		}, ","))
 		q.Set("forecast_days", strconv.Itoa(cfg.days))
+	default: // modeDefault
+		q.Set("hourly", strings.Join([]string{
+			"temperature_2m", "apparent_temperature", "precipitation_probability",
+			"precipitation", "weather_code",
+		}, ","))
+		// 今から24時間は翌日にはみ出すので、2日ぶん取る。
+		q.Set("forecast_days", "2")
 	}
 
 	return forecastEndpoint + "?" + q.Encode()

@@ -212,10 +212,10 @@ func TestBuildURL(t *testing.T) {
 	loc := location{Lat: 35.7131, Lon: 139.7001}
 
 	t.Run("default", func(t *testing.T) {
-		u := buildURL(config{mode: modeDefault, days: 1, unit: "c"}, loc)
+		u := buildURL(config{mode: modeDefault, days: 1, window: 24, unit: "c"}, loc)
 		for _, want := range []string{
 			"latitude=35.7131", "longitude=139.7001", "timezone=auto",
-			"precipitation_probability", "weather_code", "forecast_days=1",
+			"precipitation_probability", "weather_code", "forecast_days=2",
 			"wind_speed_unit=ms",
 		} {
 			if !strings.Contains(u, want) {
@@ -278,6 +278,24 @@ func TestParseArgs(t *testing.T) {
 				}
 				if c.place != "" {
 					t.Errorf("place = %q", c.place)
+				}
+			},
+		},
+		{
+			name: "hours 未指定ならデフォルトの窓は 24 時間",
+			args: nil,
+			check: func(t *testing.T, c config) {
+				if c.window != 24 {
+					t.Errorf("window = %d", c.window)
+				}
+			},
+		},
+		{
+			name: "-hours はデフォルトの窓も変える",
+			args: []string{"-hours", "6"},
+			check: func(t *testing.T, c config) {
+				if c.window != 6 {
+					t.Errorf("window = %d", c.window)
 				}
 			},
 		},
