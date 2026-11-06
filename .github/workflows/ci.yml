@@ -1,0 +1,32 @@
+name: ci
+
+# tenki: Go の build / vet / test。依存ゼロなので go.sum は無い。
+# Dependabot の github-actions 監視が動くためにも、ワークフローが1本要る。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
