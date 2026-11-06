@@ -1,0 +1,29 @@
+version: 2
+# Dependabot: 依存の既知脆弱性アラート + 更新PR。
+# tenki は現在 Go 標準ライブラリのみ（go.sum なし）なので当面は何も出ないが、
+# 依存を足した時点で自動的にカバーされる。アラート側は repo 設定で有効化済み。
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 3
+    groups:
+      go:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
