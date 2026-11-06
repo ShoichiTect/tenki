@@ -27,3 +27,5 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "chore(ci)"
+
+# github-actions 監視は .github/workflows/ci.yml がある前提（無いと dependency_file_not_found になる）
