@@ -48,6 +48,8 @@ type config struct {
 	json  bool
 	unit  string // "c" or "f"
 	color bool
+
+	showVersion bool
 }
 
 func main() {
@@ -67,6 +69,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	cfg, err := parseArgs(args, stderr)
 	if err != nil {
 		return err
+	}
+	if cfg.showVersion {
+		fmt.Fprintf(stdout, "tenki %s\n", version)
+		return nil
 	}
 
 	loc, err := resolveLocation(ctx, cfg)
@@ -106,12 +112,20 @@ func parseArgs(args []string, stderr io.Writer) (config, error) {
 		fJSON  = fs.Bool("json", false, "JSON で出力")
 		fUnit  = fs.String("unit", "c", "気温の単位: c または f")
 		fColor = fs.String("color", "auto", "色付け: auto / always / never")
+
+		fVersion = fs.Bool("version", false, "バージョン表示")
 	)
 	fs.IntVar(&cfg.days, "days", 1, "-hour / -day の日数")
 	fs.IntVar(&cfg.hours, "hours", 3, "-minute で何時間先まで出すか")
 
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
+	}
+	// バージョン表示は他のフラグの検証より優先する。地点も予報も解決せず、
+	// そのまま終了するだけなので、他の値が不正でも構わない。
+	if *fVersion {
+		cfg.showVersion = true
+		return cfg, nil
 	}
 	if rest := fs.Args(); len(rest) > 0 {
 		cfg.place = strings.Join(rest, " ")

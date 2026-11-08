@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
@@ -300,6 +301,24 @@ func TestParseArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "-version は showVersion を立てる",
+			args: []string{"-version"},
+			check: func(t *testing.T, c config) {
+				if !c.showVersion {
+					t.Errorf("showVersion = false")
+				}
+			},
+		},
+		{
+			name: "-version は不正な他フラグより優先される",
+			args: []string{"-version", "-unit", "k", "-days", "99"},
+			check: func(t *testing.T, c config) {
+				if !c.showVersion {
+					t.Errorf("showVersion = false")
+				}
+			},
+		},
+		{
 			name: "位置引数が地点になる",
 			args: []string{"高田馬場"},
 			check: func(t *testing.T, c config) {
@@ -405,5 +424,23 @@ func TestSunHM(t *testing.T) {
 	}
 	if got := sunHM("短い"); got != "短い" {
 		t.Errorf("sunHM = %q", got)
+	}
+}
+
+// -version は地点解決より前に終わるので、キャンセル済みのコンテキストでも
+// ネットワークに触れずに成功しなければならない。
+func TestRunVersionPrintsAndSkipsNetwork(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var stdout, stderr strings.Builder
+	if err := run(ctx, []string{"-version", "高田馬場"}, &stdout, &stderr); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := stdout.String(), "tenki "+version+"\n"; got != want {
+		t.Errorf("stdout = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q", stderr.String())
 	}
 }
